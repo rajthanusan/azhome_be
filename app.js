@@ -8,6 +8,7 @@ const availabilityRoutes = require('./routes/availabilityRoutes');
 const bookRoutes = require('./routes/bookingRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const geocodeRoutes = require("./routes/geocodeRoutes")
 
 
 dotenv.config();
@@ -33,7 +34,7 @@ app.use('/api/availability', availabilityRoutes);
 app.use('/api/bookings', bookRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/chat', chatRoutes);
-
+app.use("/api/geocode", geocodeRoutes)
 
 
 app.get("/", (req, res) => {
