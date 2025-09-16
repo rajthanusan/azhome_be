@@ -1,6 +1,101 @@
 const Booking = require('../models/Booking');
 const User = require('../models/User');
 const Availability = require('../models/Availability');
+const nodemailer = require('nodemailer');
+
+
+// Create reusable transporter object using Gmail
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USERNAME || 'rajthanusan08@gmail.com',
+    pass: process.env.EMAIL_PASSWORD || 'mumfvummfkwbqsyu',
+  },
+});
+
+// Function to send booking status notification
+async function sendBookingNotification(bookingId, action, reason = '') {
+  try {
+    // Fetch booking details with user and worker information
+    const booking = await Booking.findById(bookingId)
+      .populate('user', 'fullName email')
+      .populate('worker', 'fullName email phone service');
+    
+    if (!booking) {
+      throw new Error('Booking not found');
+    }
+    
+    let subject, html;
+    
+    // Customize email based on action
+    switch(action) {
+      case 'accepted':
+        subject = `Your ${booking.service} booking has been accepted`;
+        html = `
+          <p>Dear ${booking.user.fullName},</p>
+          <p>Great news! Your booking request for <strong>${booking.service}</strong> has been accepted by <strong>${booking.worker.fullName}</strong>.</p>
+          <p><strong>Booking Details:</strong></p>
+          <ul>
+            <li>Date: ${new Date(booking.date).toLocaleDateString()}</li>
+            <li>Time: ${booking.startTime} - ${booking.endTime}</li>
+            <li>Worker: ${booking.worker.fullName}</li>
+            <li>Service: ${booking.service}</li>
+            <li>Address: ${booking.address}</li>
+          </ul>
+          <p>Please be prepared for the service at the scheduled time. You can contact your service professional at ${booking.worker.phone} if needed.</p>
+          <p>Thank you for choosing AZHome!</p>
+          <p>Best regards,<br><strong>The AZHome Team</strong></p>
+        `;
+        break;
+        
+      case 'rejected':
+        subject = `Update on your ${booking.service} booking request`;
+        html = `
+          <p>Dear ${booking.user.fullName},</p>
+          <p>We regret to inform you that your booking request for <strong>${booking.service}</strong> on ${new Date(booking.date).toLocaleDateString()} has been declined by the service professional.</p>
+          <p><strong>Reason:</strong> ${reason || 'No reason provided'}</p>
+          <p>We apologize for any inconvenience this may cause. Please log in to your AZHome account to book another available time slot or choose a different service professional.</p>
+          <p>If you need assistance, our support team is available to help you find the right professional for your needs.</p>
+          <p>Thank you for your understanding.</p>
+          <p>Best regards,<br><strong>The AZHome Team</strong></p>
+        `;
+        break;
+        
+      case 'completed':
+        subject = `Your ${booking.service} service has been completed`;
+        html = `
+          <p>Dear ${booking.user.fullName},</p>
+          <p>Your <strong>${booking.service}</strong> service has been successfully completed by <strong>${booking.worker.fullName}</strong>.</p>
+          <p>We hope you are satisfied with the service provided. Please consider leaving a review for your service professional to help us maintain quality standards.</p>
+          <p>If you have any feedback or concerns about the service, please don't hesitate to contact our support team.</p>
+          <p>Thank you for choosing AZHome for your home service needs!</p>
+          <p>Best regards,<br><strong>The AZHome Team</strong></p>
+        `;
+        break;
+        
+      default:
+        throw new Error('Invalid notification action');
+    }
+    
+    // Setup email data
+    const mailOptions = {
+      from: `"AZHome Team" <${process.env.EMAIL_USERNAME || 'rajthanusan08@gmail.com'}>`,
+      to: booking.user.email,
+      subject: subject,
+      html: html
+    };
+    
+    // Send email
+    await transporter.sendMail(mailOptions);
+    console.log(`Notification email sent to ${booking.user.email} for booking ${action}`);
+    
+    return { success: true, message: `Notification sent successfully for ${action} action` };
+  } catch (error) {
+    console.error('Error sending notification email:', error);
+    throw new Error(`Failed to send notification: ${error.message}`);
+  }
+}
+
 
 
 exports.createBooking = async (req, res) => {
@@ -192,6 +287,14 @@ exports.acceptBooking = async (req, res) => {
       });
     }
 
+    // Send acceptance notification
+    try {
+      await sendBookingNotification(booking._id, 'accepted');
+    } catch (emailError) {
+      console.error('Failed to send acceptance email:', emailError);
+      // Continue even if email fails - don't fail the whole request
+    }
+
     res.status(200).json({
       status: 'success',
       data: {
@@ -205,10 +308,10 @@ exports.acceptBooking = async (req, res) => {
     });
   }
 };
-
-// Worker rejects a booking
 exports.rejectBooking = async (req, res) => {
   try {
+    const { reason } = req.body;
+    
     const booking = await Booking.findOneAndUpdate(
       { 
         _id: req.params.id, 
@@ -217,7 +320,7 @@ exports.rejectBooking = async (req, res) => {
       },
       { 
         status: 'rejected',
-        rejectionReason: req.body.reason || 'No reason provided' 
+        rejectionReason: reason || 'No reason provided' 
       },
       { new: true, runValidators: true }
     );
@@ -237,6 +340,59 @@ exports.rejectBooking = async (req, res) => {
         bookedBy: null 
       }
     );
+
+    // Send rejection notification
+    try {
+      await sendBookingNotification(booking._id, 'rejected', reason);
+    } catch (emailError) {
+      console.error('Failed to send rejection email:', emailError);
+      // Continue even if email fails
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        booking
+      }
+    });
+  } catch (err) {
+    res.status(500).json({
+      status: 'error',
+      message: err.message
+    });
+  }
+};
+
+// Worker marks booking as completed (updated to include notification)
+exports.completeBooking = async (req, res) => {
+  try {
+    const booking = await Booking.findOneAndUpdate(
+      { 
+        _id: req.params.id, 
+        worker: req.user.id, 
+        status: 'confirmed' 
+      },
+      { 
+        status: 'completed',
+        completionNotes: req.body.notes || '' 
+      },
+      { new: true, runValidators: true }
+    ).populate('user', 'fullName email phone');
+
+    if (!booking) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Booking not found or cannot be completed'
+      });
+    }
+
+    // Send completion notification
+    try {
+      await sendBookingNotification(booking._id, 'completed');
+    } catch (emailError) {
+      console.error('Failed to send completion email:', emailError);
+      // Continue even if email fails
+    }
 
     res.status(200).json({
       status: 'success',
@@ -299,43 +455,43 @@ exports.cancelBooking = async (req, res) => {
     });
   }
 };
-
-// Worker marks booking as completed
-exports.completeBooking = async (req, res) => {
+async function sendBookingConfirmation(bookingId) {
   try {
-    const booking = await Booking.findOneAndUpdate(
-      { 
-        _id: req.params.id, 
-        worker: req.user.id, 
-        status: 'confirmed' 
-      },
-      { 
-        status: 'completed',
-        completionNotes: req.body.notes || '' 
-      },
-      { new: true, runValidators: true }
-    ).populate('user', 'fullName email phone');
-
+    const booking = await Booking.findById(bookingId)
+      .populate('user', 'fullName email')
+      .populate('worker', 'fullName service');
+    
     if (!booking) {
-      return res.status(404).json({
-        status: 'error',
-        message: 'Booking not found or cannot be completed'
-      });
+      throw new Error('Booking not found');
     }
-
-    res.status(200).json({
-      status: 'success',
-      data: {
-        booking
-      }
-    });
-  } catch (err) {
-    res.status(500).json({
-      status: 'error',
-      message: err.message
-    });
+    
+    const mailOptions = {
+      from: `"AZHome Team" <${process.env.EMAIL_USERNAME || 'rajthanusan08@gmail.com'}>`,
+      to: booking.user.email,
+      subject: `Your ${booking.service} booking is pending confirmation`,
+      html: `
+        <p>Dear ${booking.user.fullName},</p>
+        <p>Thank you for booking with AZHome! Your request for <strong>${booking.service}</strong> has been received and is pending confirmation from the service professional.</p>
+        <p><strong>Booking Details:</strong></p>
+        <ul>
+          <li>Date: ${new Date(booking.date).toLocaleDateString()}</li>
+          <li>Time: ${booking.startTime} - ${booking.endTime}</li>
+          <li>Requested Professional: ${booking.worker.fullName}</li>
+          <li>Service: ${booking.service}</li>
+          <li>Address: ${booking.address}</li>
+        </ul>
+        <p>You will receive another email once the service professional confirms your booking. If the professional is unable to accept your booking, you'll be notified and can choose another available time slot.</p>
+        <p>Thank you for choosing AZHome!</p>
+        <p>Best regards,<br><strong>The AZHome Team</strong></p>
+      `
+    };
+    
+    await transporter.sendMail(mailOptions);
+    console.log(`Booking confirmation email sent to ${booking.user.email}`);
+  } catch (error) {
+    console.error('Error sending booking confirmation email:', error);
   }
-};
+}
 
 // Admin gets all bookings (filterable)
 exports.getAllBookings = async (req, res) => {

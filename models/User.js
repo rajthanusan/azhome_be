@@ -67,6 +67,37 @@ const userSchema = new mongoose.Schema({
     ],
     default: null
   },
+  hourlyRate: {
+    type: Number,
+    default: null
+  },
+  nic: {
+    front: {
+      url: String,
+      public_id: String
+    },
+    back: {
+      url: String,
+      public_id: String
+    }
+  },
+  certificates: [{
+    url: String,
+    public_id: String,
+    title: String,
+    issuedDate: Date,
+    issuingAuthority: String
+  }],
+  pastWorks: [{
+    url: String,
+    public_id: String,
+    description: String,
+    date: Date
+  }],
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
   averageRating: {
     type: Number,
     default: 0

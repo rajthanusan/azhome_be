@@ -17,7 +17,7 @@ const transporter = nodemailer.createTransport({
 // Register a new user
 exports.register = async (req, res) => {
   try {
-    const { fullName, email, password, address, role, service } = req.body;
+    const { fullName, email, password, address, role, service, hourlyRate } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -35,7 +35,8 @@ exports.register = async (req, res) => {
       password,
       address,
       role: role || "user",
-      ...(role === "worker" && { service })
+      ...(role === "worker" && { service }),
+      ...(role === "worker" && { hourlyRate })
     });
 
     // Generate JWT token
@@ -51,9 +52,9 @@ exports.register = async (req, res) => {
       html: `
       <p>Dear ${fullName},</p>
   
-      <p>Welcome to <strong>AZHome</strong>! We’re thrilled to have you on board.</p>
+      <p>Welcome to <strong>AZHome</strong>! We're thrilled to have you on board.</p>
   
-      <p>Your account has been successfully created, and you’re now part of a trusted platform dedicated to delivering high-quality home services. From plumbing and electrical work to painting and landscaping, we’re here to help you maintain and improve your property with ease.</p>
+      <p>Your account has been successfully created, and you're now part of a trusted platform dedicated to delivering high-quality home services. From plumbing and electrical work to painting and landscaping, we're here to help you maintain and improve your property with ease.</p>
   
       <p>As a registered user, you can now:</p>
       <ul>
@@ -65,7 +66,7 @@ exports.register = async (req, res) => {
   
       <p>If you have any questions or need assistance, our support team is always ready to help.</p>
   
-      <p>Thank you for choosing AZHome — where your comfort and satisfaction come first.</p>
+      <p>Thank you for choosing AZHome - where your comfort and satisfaction come first.</p>
   
       <p>Best regards,</p>
       <p><strong>The AZHome Team</strong></p>
@@ -82,7 +83,8 @@ exports.register = async (req, res) => {
         email: user.email,
         role: user.role,
         address: user.address,
-        ...(user.service && { service: user.service })
+        ...(user.service && { service: user.service }),
+        ...(user.hourlyRate && { hourlyRate: user.hourlyRate })
       },
       token 
     });
